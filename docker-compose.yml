@@ -1,0 +1,130 @@
+services:
+  mssql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: mssql
+    environment:
+      ACCEPT_EULA: Y
+      SA_PASSWORD: YourStrong!Passw0rd
+      MSSQL_PID: Express
+    volumes: 
+      - mssql_data:/var/opt/mssql
+    ports:
+      - "1433:1433"
+
+  rabbitmq:
+    image: rabbitmq:4-management
+    container_name: rabbitmq
+    hostname: rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - ./rabbit_definitions.json:/etc/rabbitmq/definitions.json
+      - rabbitmq_data:/var/lib/rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+      RABBITMQ_DEFAULT_VHOST: /
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "-rabbitmq_management load_definitions \"/etc/rabbitmq/definitions.json\""
+
+  internsservice:
+    build:
+      context: ./Backend/InternMicroserv
+      dockerfile: ./InternMicroserv/Dockerfile
+    container_name: internsmicroservice
+    depends_on:
+      - rabbitmq
+      - mssql
+    environment:
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: guest
+      RABBITMQ_PASSWORD: guest
+      RABBITMQ_VHOST: interns
+      CONNECTIONSTRING_MSSQL: Server=mssql;Database=InternsDb;User Id=sa;Password=YourStrong!Passw0rd;TrustServerCertificate=True;MultipleActiveResultSets=True
+
+  projectsservice:
+    build:
+      context: ./Backend/ProjectsMicroserv
+      dockerfile: ./ProjectsMicroserv/Dockerfile
+    container_name: projectsmicroservice
+    depends_on:
+      - rabbitmq
+      - mssql
+    environment:
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: guest
+      RABBITMQ_PASSWORD: guest
+      RABBITMQ_VHOST: interns
+      CONNECTIONSTRING_MSSQL: Server=mssql;Database=ProjectsDb;User Id=sa;Password=YourStrong!Passw0rd;TrustServerCertificate=True;MultipleActiveResultSets=True
+
+  directionsservice:
+    build:
+      context: ./Backend/InternshipDirectionMicroserv
+      dockerfile: ./InternshipDirectionMicroserv/Dockerfile
+    container_name: directionsmicroservice
+    depends_on:
+      - rabbitmq
+      - mssql
+    environment:
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: guest
+      RABBITMQ_PASSWORD: guest
+      RABBITMQ_VHOST: interns
+      CONNECTIONSTRING_MSSQL: Server=mssql;Database=DirectionsDb;User Id=sa;Password=YourStrong!Passw0rd;TrustServerCertificate=True;MultipleActiveResultSets=True
+  
+  usersservice:
+    build:
+      context: ./Backend/UserMicroserv
+      dockerfile: ./UserMicroserv/Dockerfile
+    container_name: usersmicroservice
+    depends_on:
+      - rabbitmq
+      - mssql
+    environment:
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: guest
+      RABBITMQ_PASSWORD: guest
+      RABBITMQ_VHOST: interns
+      CONNECTIONSTRING_MSSQL: Server=mssql;Database=UsersDb;User Id=sa;Password=YourStrong!Passw0rd;TrustServerCertificate=True;MultipleActiveResultSets=True
+  
+  apigateway:
+    build: 
+      context: ./Backend/APIGatewayInterns
+      dockerfile: ./APIGatewayInterns/Dockerfile
+    container_name: apigateway
+    depends_on:
+      - rabbitmq
+      - internsservice
+      - projectsservice
+      - directionsservice
+      - usersservice
+    ports:
+      - "32781:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: guest
+      RABBITMQ_PASSWORD: guest
+      RABBITMQ_VHOST: interns
+
+  frontendblazor:
+    build: 
+      context: ./Frontend/FrontendInternsApp
+      dockerfile: ./FrontendInternsApp/Dockerfile
+    container_name: frontendinternsapp
+    ports:
+      - "8080:8080"
+    depends_on:
+      - apigateway
+
+volumes:
+  mssql_data:
+    name: mssql_data
+
+  rabbitmq_data:
+    name: rabbitmq_data
+    driver: local
+
+networks:
+  default:
+    name: interns-network

@@ -1,0 +1,237 @@
+﻿@page "/projects/{page:int}"
+@rendermode InteractiveServer
+@using Blazored.LocalStorage
+@using FrontendInternsApp.Components.Models
+@using HttpDtos
+@using System.Text.Json
+@using Other.Enums
+@using System.Net
+
+<PageTitle>Counter</PageTitle>
+
+<h1>Counter</h1>
+<input class="form-control" placeholder="Project filter" @onchange="async e => await OnFilterChange(e)" value="@filter" style="width: auto"></input>
+
+<select @onchange="async e => await OnCountPerPageChanged(e)">
+    <option selected hidden>Select count on page</option>
+    <option>10</option>
+    <option>20</option>
+    <option>30</option>
+</select>
+
+<select @onchange="async e => await OnSortingChanged(e)">
+    <option selected hidden>Select sort type</option>
+    <option value="0">Default</option>
+    <option value="2">Project name</option>
+    <option value="3">Intern count</option>
+</select>
+
+<MudButton @onclick="OnProjectCreating" Variant="Variant.Filled" style="margin: 10px">Create project</MudButton>
+
+@if (Projects.Count != 0)
+{
+    <MudPaper Class="d-flex flex-wrap gap-4" Elevation="0">
+        @foreach (ProjectHttpDto project in Projects)
+        {
+            <ProjectCard Project="project" Interns="Interns.ToDictionary(intern => intern.Id)"></ProjectCard>
+        }
+    </MudPaper>
+}
+else if (hasDataFlag)
+{
+    <p>Loading...</p>
+}
+else
+{
+    <p>No data in this page</p>
+}
+
+<ul class="fixed-bottom pagination justify-content-lg-center">
+    @if (Page != 1)
+    {
+        <li class="page-item">
+            <a href="@GetPageUrl(1)" class="page-link">First page</a>
+        </li>
+    }
+    @if (HasPreviousPage)
+    {
+        <li class="page-item">
+            <a href="@GetPageUrl(Page - 1)" class="page-link">Past page</a>
+        </li>
+    }
+    @if (HasNextPage)
+    {
+        <li class="page-item">
+            <a href="@GetPageUrl(Page + 1)" class="page-link">Next page</a>
+        </li>
+    }
+    @if (HasNextPage && Page != TotalPages)
+    {
+        <li class="page-item">
+            <a href="@GetPageUrl(TotalPages)" class="page-link">Last page</a>
+        </li>
+    }
+</ul>
+@code {
+
+    [Inject]
+    private ILocalStorageService LocalStorage { get; set; } = default!;
+
+    [Inject]
+    private NavigationManager NavigationManager { get; set; } = default!;
+
+    [Parameter]
+    public int Page { get; set; }
+
+    private List<ProjectHttpDto> Projects = new();
+    private List<InternLowDetailHttpDto> Interns = new();
+    private int itemsPerPage;
+    private int totalItems;
+    private int TotalPages => (int)Math.Ceiling((double)totalItems / itemsPerPage);
+    private bool HasPreviousPage => Page > 1;
+    private bool HasNextPage => Page < TotalPages;
+    private string filter = "";
+    private SortingParameter sortingParameter;
+    private bool hasDataFlag = true;
+
+    private string GetPageUrl(int page) => $"/projects/{page}";
+
+    private void GoTo(string url) => NavigationManager.NavigateTo(url);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        string of = filter;
+        SortingParameter osp = sortingParameter;
+        int oipp = itemsPerPage;
+        filter = await LocalStorage.GetItemAsync<string>("filterP");
+        sortingParameter = (SortingParameter)(await LocalStorage.GetItemAsync<int>("sortingParamP"));
+        itemsPerPage = await LocalStorage.GetItemAsync<int>("itemsPerPageP");
+        if (string.IsNullOrEmpty(filter))
+        {
+            await LocalStorage.SetItemAsync<string>("filterP", "");
+            filter = "";
+        }
+        if (itemsPerPage == 0)
+        {
+            await LocalStorage.SetItemAsync<int>("itemsPerPageP", 10);
+            itemsPerPage = 10;
+        }
+        if (of != filter || osp != sortingParameter || oipp != itemsPerPage || firstRender)
+        {
+            using HttpClient client = new HttpClient();
+            JsonContent content = JsonContent.Create(new GetPagedProjectsHttpRequestDto()
+                {
+                    ProjectCountOnPage = itemsPerPage,
+                    ProjectsFilter = filter,
+                    PageNumber = Page,
+                    SortingParameter = sortingParameter
+                },
+            options: new JsonSerializerOptions() { PropertyNameCaseInsensitive = true });
+            string respContent = "";
+            HttpResponseMessage responseMessage = await client.PostAsync("http://apigateway:8080/api/Projects/get_projects_on_page", content);
+            respContent = await responseMessage.Content.ReadAsStringAsync();
+            GetPagedProjectsHttpResponseDto result = JsonSerializer.Deserialize<GetPagedProjectsHttpResponseDto>(respContent, new JsonSerializerOptions() { PropertyNameCaseInsensitive = true });
+            Projects = result.Projects;
+            totalItems = result.TotalCount;
+            hasDataFlag = result.Projects.Count != 0;
+            responseMessage = await client.GetAsync("http://apigateway:8080/api/Interns/low_detail_all");
+            respContent = await responseMessage.Content.ReadAsStringAsync();
+            Interns = JsonSerializer.Deserialize<List<InternLowDetailHttpDto>>(respContent, new JsonSerializerOptions() { PropertyNameCaseInsensitive = true });
+            StateHasChanged();
+        }
+    }
+
+    private async Task OnFilterChange(ChangeEventArgs e)
+    {
+        filter = e.Value.ToString();
+        if (string.IsNullOrEmpty(filter))
+            filter = "";
+        await LocalStorage.SetItemAsync<string>("filterP", filter);
+        if (Page == 1)
+        {
+            using HttpClient client = new HttpClient();
+            JsonContent content = JsonContent.Create(new GetPagedProjectsHttpRequestDto()
+                {
+                    ProjectCountOnPage = itemsPerPage,
+                    ProjectsFilter = filter,
+                    PageNumber = Page,
+                    SortingParameter = sortingParameter
+                },
+            options: new JsonSerializerOptions() { PropertyNameCaseInsensitive = true });
+            HttpResponseMessage responseMessage = await client.PostAsync("http://apigateway:8080/api/Projects/get_projects_on_page", content);
+            string respContent = await responseMessage.Content.ReadAsStringAsync();
+            GetPagedProjectsHttpResponseDto result = JsonSerializer.Deserialize<GetPagedProjectsHttpResponseDto>(respContent, new JsonSerializerOptions() { PropertyNameCaseInsensitive = true });
+            Projects = result.Projects;
+            totalItems = result.TotalCount;
+            hasDataFlag = result.Projects.Count != 0;
+        }
+        else
+            GoTo(GetPageUrl(1));
+    }
+
+    private async Task OnCountPerPageChanged(ChangeEventArgs e)
+    {
+        itemsPerPage = int.Parse(e.Value.ToString());
+        await LocalStorage.SetItemAsync<int>("itemsPerPageP", itemsPerPage);
+        if (Page == 1)
+        {
+            using HttpClient client = new HttpClient();
+            JsonContent content = JsonContent.Create(new GetPagedProjectsHttpRequestDto()
+                {
+                    ProjectCountOnPage = itemsPerPage,
+                    ProjectsFilter = filter,
+                    PageNumber = Page,
+                    SortingParameter = sortingParameter
+                },
+            options: new JsonSerializerOptions() { PropertyNameCaseInsensitive = true });
+            HttpResponseMessage responseMessage = await client.PostAsync("http://apigateway:8080/api/Projects/get_projects_on_page", content);
+            string respContent = await responseMessage.Content.ReadAsStringAsync();
+            GetPagedProjectsHttpResponseDto result = JsonSerializer.Deserialize<GetPagedProjectsHttpResponseDto>(respContent, new JsonSerializerOptions() { PropertyNameCaseInsensitive = true });
+            Projects = result.Projects;
+            totalItems = result.TotalCount;
+            hasDataFlag = result.Projects.Count != 0;
+        }
+        else
+            GoTo(GetPageUrl(1));
+    }
+
+    private async Task OnSortingChanged(ChangeEventArgs e)
+    {
+        sortingParameter = (SortingParameter)int.Parse(e.Value.ToString());
+        await LocalStorage.SetItemAsync<int>("sortingParamP", (int)sortingParameter);
+        if (Page == 1)
+        {
+            using HttpClient client = new HttpClient();
+            JsonContent content = JsonContent.Create(new GetPagedProjectsHttpRequestDto()
+                {
+                    ProjectCountOnPage = itemsPerPage,
+                    ProjectsFilter = filter,
+                    PageNumber = Page,
+                    SortingParameter = sortingParameter
+                },
+            options: new JsonSerializerOptions() { PropertyNameCaseInsensitive = true });
+            HttpResponseMessage responseMessage = await client.PostAsync("http://apigateway:8080/api/Projects/get_projects_on_page", content);
+            string respContent = await responseMessage.Content.ReadAsStringAsync();
+            GetPagedProjectsHttpResponseDto result = JsonSerializer.Deserialize<GetPagedProjectsHttpResponseDto>(respContent, new JsonSerializerOptions() { PropertyNameCaseInsensitive = true });
+            Projects = result.Projects;
+            totalItems = result.TotalCount;
+            hasDataFlag = result.Projects.Count != 0;
+        }
+        else
+            GoTo(GetPageUrl(1));
+    }
+
+    private async Task OnProjectCreating()
+    {
+        ProjectHttpDto newProject = new();
+        newProject.Interns = new();
+        newProject.Name = "New project";
+        newProject.Description = "";
+        using HttpClient client = new HttpClient();
+        JsonContent content = JsonContent.Create(new ProjectLowDetailHttpDto() { Id = newProject.Id, Name = newProject.Name, Description = newProject.Description, IsActive = true }, options: new JsonSerializerOptions() { PropertyNameCaseInsensitive = true });
+        HttpResponseMessage responseMessage = await client.PostAsync("http://apigateway:8080/api/Projects/create", content);
+        string responseContent = await responseMessage.Content.ReadAsStringAsync();
+        newProject.Id = JsonSerializer.Deserialize<Guid>(responseContent, new JsonSerializerOptions() { PropertyNameCaseInsensitive = true });
+        Projects.Add(newProject);
+    }
+}

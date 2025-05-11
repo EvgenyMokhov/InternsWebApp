@@ -1,0 +1,167 @@
+﻿@using System.Text.Json
+@inject IJSRuntime JSRuntime
+@using System.Text.RegularExpressions
+@using HttpDtos
+@using System.Net
+
+<div class="card">
+	<div class="card-body">
+		@if (IsEditing)
+		{
+			<b style="margin: 5px">Name</b>
+			<input @bind="projName" class="form-control" style="margin: 5px"></input>
+			<span class="text-danger">@nameError</span>
+
+			<b style="margin: 5px">Description</b>
+			<textarea @bind="projDescr" class="form-control" style="margin: 5px"></textarea>
+
+			<select style="margin: 5px">
+				<option selected hidden>Current interns</option>
+				@foreach (InternLowDetailHttpDto intern in ProjectInterns.Values)
+				{
+					<option disabled>@intern.User.Name @intern.User.Surname</option>
+				}
+			</select>
+
+			<input class="form-control" @bind="internsFilter" placeholder="Interns filter" style="margin: 5px"></input>
+			<select @onchange="OnInternSelected" style="margin: 5px">
+				<option selected hidden>Select new interns</option>
+				@foreach (InternLowDetailHttpDto intern in Interns.Values.Where(intern => !ProjectInterns.ContainsKey(intern.Id) && Regex.IsMatch(intern.User.Name + intern.User.Surname, internsFilter)))
+				{
+					<option value="@intern.Id" @key="intern.Id">@intern.User.Name @intern.User.Surname</option>
+				}
+			</select>
+
+			<MudButton @onclick="SaveChanges" Variant="Variant.Filled" style="margin: 10px">Save changes</MudButton>
+
+			<MudButton @onclick="DeleteProject" Variant="Variant.Filled" Color="Color.Secondary" style="margin: 10px">Delete project</MudButton>
+
+			<span class="text-danger">@cantDelete</span>
+		}
+		else
+		{
+			<b>Name</b>
+			<p>@Project.Name</p>
+
+			<b>Description</b>
+			<p>@Project.Description</p>
+
+			<b>Interns list</b>
+			@foreach (InternLowDetailHttpDto intern in Project.Interns)
+			{
+				<p>@intern.User.Name @intern.User.Surname</p>
+			}
+
+			<MudButton @onclick="ToggleEdit" Variant="Variant.Filled">Edit</MudButton>
+		}
+	</div>
+</div>
+
+@code {
+	[Inject]
+	private IDialogService DialogService { get; set; }
+
+	[Parameter] 
+	public ProjectHttpDto Project { get; set; }
+
+	public bool IsEditing { get; set; }
+
+	[Parameter] 
+	public Dictionary<Guid, InternLowDetailHttpDto> Interns { get; set; }
+
+	private Dictionary<Guid, InternLowDetailHttpDto> ProjectInterns = new();
+	private string projName;
+	private string projDescr;
+	private string nameError;
+	private string cantDelete;
+	private string internsFilter = "";
+	private Guid selectedInternId;
+
+	private async Task ReloadPage()
+	{
+		await JSRuntime.InvokeVoidAsync("location.reload");
+	}
+
+	private void ClearErrors()
+	{
+		nameError = null;
+	}
+
+	protected override async Task OnInitializedAsync()
+	{
+		ProjectInterns = Project.Interns.ToDictionary(intern => intern.Id);
+		projDescr = Project.Description;
+		projName = Project.Name;
+	}
+
+	private bool Validate()
+	{
+		ClearErrors();
+		bool flag = true;
+		if (string.IsNullOrEmpty(projName))
+		{
+			nameError = "Field name is required";
+			flag = false;
+		}
+		return flag;
+	}
+
+	private void ToggleEdit()
+	{
+		IsEditing = true;
+		ProjectInterns = Project.Interns.ToDictionary(intern => intern.Id);
+		projDescr = Project.Description;
+		projName = Project.Name;
+	}
+
+	private async Task SaveChanges()
+	{
+		if (Validate())
+		{
+			Project.Name = projName;
+			Project.Description = projDescr;
+			Project.Interns = ProjectInterns.Values.ToList();
+			Project.IsActive = true;
+			using HttpClient client = new HttpClient();
+			JsonContent content = JsonContent.Create(Project, options: new JsonSerializerOptions() { PropertyNameCaseInsensitive = true });
+			HttpResponseMessage responseMessage = await client.PutAsync("http://apigateway:8080/api/Projects/update", content);
+			IsEditing = false;
+		}
+	}
+
+	private async Task DeleteProject()
+	{
+		if (Project.Interns.Count == 0)
+		{
+			Project.IsActive = false;
+			using HttpClient client = new HttpClient();
+			JsonContent content = JsonContent.Create(Project, options: new JsonSerializerOptions() { PropertyNameCaseInsensitive = true });
+			HttpResponseMessage responseMessage = await client.PutAsync("http://apigateway:8080/api/Projects/update", content);
+			IsEditing = false;
+			await ReloadPage();
+		}
+		else
+		{
+			cantDelete = "Project with interns can not be deleted!";
+		}
+	}
+
+	private void OnInternSelected(ChangeEventArgs e)
+	{
+		Guid id = Guid.Empty;
+		if (Guid.TryParse(e.Value.ToString(), out id))
+		{
+			InternLowDetailHttpDto intern = Interns[id];
+			Project.Interns.Add(intern);
+			ProjectInterns.Add(intern.Id, intern);
+			Interns.Remove(Guid.Parse(e.Value.ToString()));
+		}
+	}
+}
+
+<style>
+	.card {
+		width: 390px;
+		margin-bottom: 10px;
+	}
+</style>

@@ -1,0 +1,237 @@
+﻿@page "/directions/{page:int}"
+@rendermode InteractiveServer
+@using Blazored.LocalStorage
+@using FrontendInternsApp.Components.Models
+@using System.Text.Json
+@using HttpDtos
+@using Other.Enums
+@using System.Net
+
+<PageTitle>Counter</PageTitle>
+
+<h1>Counter</h1>
+<input class="form-control" placeholder="Direction filter" @onchange="async e => await OnFilterChange(e)" value="@filter" style="width: auto"></input>
+
+<select @onchange="async e => await OnCountPerPageChanged(e)">
+    <option selected hidden>Select count on page</option>
+    <option>10</option>
+    <option>20</option>
+    <option>30</option>
+</select>
+
+<select @onchange="async e => await OnSortingChanged(e)">
+    <option selected hidden>Select sort type</option>
+    <option value="0">Default</option>
+    <option value="1">Direction name</option>
+    <option value="3">Intern count</option>
+</select>
+
+<MudButton @onclick="OnDirectionCreating" Variant="Variant.Filled" style="margin: 10px">Create direction</MudButton>
+
+@if (Directions.Count != 0)
+{
+    <MudPaper Class="d-flex flex-wrap gap-4" Elevation="0">
+        @foreach (DirectionHttpDto direction in Directions)
+        {
+            <DirectionCard Direction="direction" Interns="Interns.ToDictionary(intern => intern.Id)"></DirectionCard>
+        }
+    </MudPaper>
+}
+else if (hasDataFlag)
+{
+    <p>Loading...</p>
+}
+else
+{
+    <p>No data in this page</p>
+}
+<ul class="fixed-bottom pagination justify-content-lg-center">
+    @if (Page != 1)
+    {
+        <li class="page-item">
+            <a href="@GetPageUrl(1)" class="page-link">First page</a>
+        </li>
+    }
+    @if (HasPreviousPage)
+    {
+        <li class="page-item">
+            <a href="@GetPageUrl(Page - 1)" class="page-link">Past page</a>
+        </li>
+    }
+    @if (HasNextPage)
+    {
+        <li class="page-item">
+            <a href="@GetPageUrl(Page + 1)" class="page-link">Next page</a>
+        </li>
+    }
+    @if (HasNextPage && Page != TotalPages)
+    {
+        <li class="page-item">
+            <a href="@GetPageUrl(TotalPages)" class="page-link">Last page</a>
+        </li>
+    }
+</ul>
+@code {
+
+    [Inject]
+    private ILocalStorageService LocalStorage { get; set; } = default!;
+
+    [Inject]
+    private NavigationManager NavigationManager { get; set; } = default!;
+
+    [Parameter] 
+    public int Page { get; set; }
+
+    private List<DirectionHttpDto> Directions = new();
+    private List<InternLowDetailHttpDto> Interns = new();
+    private int itemsPerPage = 10;
+    private int totalItems;
+    private int TotalPages => (int)Math.Ceiling((double)totalItems / itemsPerPage);
+    private bool HasPreviousPage => Page > 1;
+    private bool HasNextPage => Page < TotalPages;
+    private string filter = "";
+    private bool hasDataFlag = true;
+    private SortingParameter sortingParameter = SortingParameter.None;
+
+    private string GetPageUrl(int page) => $"/directions/{page}";
+
+    private void GoTo(string url) => NavigationManager.NavigateTo(url);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        string of = filter;
+        SortingParameter osp = sortingParameter;
+        int oipp = itemsPerPage;
+        filter = await LocalStorage.GetItemAsync<string>("filterD");
+        sortingParameter = (SortingParameter)(await LocalStorage.GetItemAsync<int>("sortingParamD"));
+        itemsPerPage = await LocalStorage.GetItemAsync<int>("itemsPerPageD");
+        if (string.IsNullOrEmpty(filter))
+        {
+            await LocalStorage.SetItemAsync<string>("filterD", "");
+            filter = "";
+        }
+        if (itemsPerPage == 0)
+        {
+            await LocalStorage.SetItemAsync<int>("itemsPerPageD", 10);
+            itemsPerPage = 10;
+        }
+        if (of != filter || osp != sortingParameter || oipp != itemsPerPage || firstRender)
+        {
+            using HttpClient client = new HttpClient();
+            JsonContent content = JsonContent.Create(new GetPagedDirectionsHttpRequestDto()
+                {
+                    DirectionsCountOnPage = itemsPerPage,
+                    DirectionsFilter = filter,
+                    PageNumber = Page,
+                    SortingParameter = sortingParameter
+                },
+            options: new JsonSerializerOptions() { PropertyNameCaseInsensitive = true });
+            string respContent = "";
+            HttpResponseMessage responseMessage = await client.PostAsync("http://apigateway:8080/api/Directions/get_directions_on_page", content);
+            respContent = await responseMessage.Content.ReadAsStringAsync();
+            GetPagedDirectionsHttpResponseDto result = JsonSerializer.Deserialize<GetPagedDirectionsHttpResponseDto>(respContent, new JsonSerializerOptions() { PropertyNameCaseInsensitive = true });
+            Directions = result.Directions;
+            totalItems = result.TotalCount;
+            hasDataFlag = result.Directions.Count != 0;
+
+            responseMessage = await client.GetAsync("http://apigateway:8080/api/Interns/low_detail_all");
+            respContent = await responseMessage.Content.ReadAsStringAsync();
+            Interns = JsonSerializer.Deserialize<List<InternLowDetailHttpDto>>(respContent, new JsonSerializerOptions() { PropertyNameCaseInsensitive = true });
+            StateHasChanged();
+        }
+    }
+
+    private async Task OnFilterChange(ChangeEventArgs e)
+    {
+        filter = e.Value.ToString();
+        if (string.IsNullOrEmpty(filter))
+            filter = "";
+        await LocalStorage.SetItemAsync<string>("filterD", filter);
+        if (Page == 1)
+        {
+            using HttpClient client = new HttpClient();
+            JsonContent content = JsonContent.Create(new GetPagedDirectionsHttpRequestDto()
+            {
+                DirectionsCountOnPage = itemsPerPage,
+                DirectionsFilter = filter,
+                PageNumber = Page,
+                SortingParameter = sortingParameter
+            },
+            options: new JsonSerializerOptions() { PropertyNameCaseInsensitive = true });
+            HttpResponseMessage responseMessage = await client.PostAsync("http://apigateway:8080/api/Directions/get_directions_on_page", content);
+            string respContent = await responseMessage.Content.ReadAsStringAsync();
+            GetPagedDirectionsHttpResponseDto result = JsonSerializer.Deserialize<GetPagedDirectionsHttpResponseDto>(respContent, new JsonSerializerOptions() { PropertyNameCaseInsensitive = true });
+            Directions = result.Directions;
+            totalItems = result.TotalCount;
+            hasDataFlag = result.Directions.Count != 0;
+        }
+        else
+            GoTo(GetPageUrl(1));
+    }
+
+    private async Task OnCountPerPageChanged(ChangeEventArgs e)
+    {
+        itemsPerPage = int.Parse(e.Value.ToString());
+        await LocalStorage.SetItemAsync<int>("itemsPerPageD", itemsPerPage);
+        if (Page == 1)
+        {
+            using HttpClient client = new HttpClient();
+            JsonContent content = JsonContent.Create(new GetPagedDirectionsHttpRequestDto()
+            {
+                DirectionsCountOnPage = itemsPerPage,
+                DirectionsFilter = filter,
+                PageNumber = Page,
+                SortingParameter = sortingParameter
+            },
+            options: new JsonSerializerOptions() { PropertyNameCaseInsensitive = true });
+            HttpResponseMessage responseMessage = await client.PostAsync("http://apigateway:8080/api/Directions/get_directions_on_page", content);
+            string respContent = await responseMessage.Content.ReadAsStringAsync();
+            GetPagedDirectionsHttpResponseDto result = JsonSerializer.Deserialize<GetPagedDirectionsHttpResponseDto>(respContent, new JsonSerializerOptions() { PropertyNameCaseInsensitive = true });
+            Directions = result.Directions;
+            totalItems = result.TotalCount;
+            hasDataFlag = result.Directions.Count != 0;
+        }
+        else
+            GoTo(GetPageUrl(1));
+    }
+
+    private async Task OnSortingChanged(ChangeEventArgs e)
+    {
+        sortingParameter = (SortingParameter)int.Parse(e.Value.ToString());
+        await LocalStorage.SetItemAsync<int>("sortingParamD", (int)sortingParameter);
+        if (Page == 1)
+        {
+            using HttpClient client = new HttpClient();
+            JsonContent content = JsonContent.Create(new GetPagedDirectionsHttpRequestDto()
+            {
+                DirectionsCountOnPage = itemsPerPage,
+                DirectionsFilter = filter,
+                PageNumber = Page,
+                SortingParameter = sortingParameter
+            },
+            options: new JsonSerializerOptions() { PropertyNameCaseInsensitive = true });
+            HttpResponseMessage responseMessage = await client.PostAsync("http://apigateway:8080/api/Directions/get_directions_on_page", content);
+            string respContent = await responseMessage.Content.ReadAsStringAsync();
+            GetPagedDirectionsHttpResponseDto result = JsonSerializer.Deserialize<GetPagedDirectionsHttpResponseDto>(respContent, new JsonSerializerOptions() { PropertyNameCaseInsensitive = true });
+            Directions = result.Directions;
+            totalItems = result.TotalCount;
+            hasDataFlag = result.Directions.Count != 0;
+        }
+        else
+            GoTo(GetPageUrl(1));
+    }
+
+    private async Task OnDirectionCreating()
+    {
+        DirectionHttpDto newDirection = new();
+        newDirection.Interns = new();
+        newDirection.Name = "New direction";
+        newDirection.Description = "";
+        using HttpClient client = new HttpClient();
+        JsonContent content = JsonContent.Create(new DirectionLowDetailHttpDto() { Id = newDirection.Id, Name = newDirection.Name, Description = newDirection.Description, IsActive = true }, options: new JsonSerializerOptions() { PropertyNameCaseInsensitive = true });
+        HttpResponseMessage responseMessage = await client.PostAsync("http://apigateway:8080/api/Directions/create", content);
+        string responseContent = await responseMessage.Content.ReadAsStringAsync();
+        newDirection.Id = JsonSerializer.Deserialize<Guid>(responseContent, new JsonSerializerOptions() { PropertyNameCaseInsensitive = true });
+        Directions.Add(newDirection);
+    }
+}

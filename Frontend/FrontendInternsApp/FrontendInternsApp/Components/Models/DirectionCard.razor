@@ -1,0 +1,167 @@
+﻿@using HttpDtos
+@inject IJSRuntime JSRuntime
+@using System.Text.Json
+@using System.Text.RegularExpressions
+@using System.Net
+
+<div class="card">
+	<div class="card-body">
+		@if (IsEditing)
+		{
+			<b style="margin: 5px">Name</b>
+			<input @bind="dirName" class="form-control" style="margin: 5px"></input>
+			<span class="text-danger">@nameError</span>
+
+			<b style="margin: 5px">Description</b>
+			<textarea @bind="dirDescription" class="form-control" style="margin: 5px"></textarea>
+
+			<select style="margin: 5px">
+				<option selected hidden>Current interns</option>
+				@foreach (InternLowDetailHttpDto intern in DirectionInterns.Values)
+				{
+					<option disabled>@intern.User.Name @intern.User.Surname</option>
+				}
+			</select>
+
+			<input class="form-control" @bind="internsFilter" placeholder="Interns filter" style="margin: 5px"></input>
+			<select @onchange="OnInternSelected" style="margin: 5px">
+				<option selected hidden>Select new interns</option>
+				@foreach (InternLowDetailHttpDto intern in Interns.Values.Where(intern => !DirectionInterns.ContainsKey(intern.Id) && Regex.IsMatch(intern.User.Name + intern.User.Surname, internsFilter)))
+				{
+					<option value="@intern.Id" @key="intern.Id">@intern.User.Name @intern.User.Surname</option>
+				}
+			</select>
+
+			<MudButton @onclick="SaveChanges" Variant="Variant.Filled" style="margin: 10px">Save changes</MudButton>
+
+			<MudButton @onclick="DeleteDirection" Variant="Variant.Filled" Color="Color.Secondary" style="margin: 10px">Delete direction</MudButton>
+
+			<span class="text-danger">@cantDelete</span>
+		}
+		else
+		{
+			<b>Name</b>
+			<p>@Direction.Name</p>
+
+			<b>Description</b>
+			<p>@Direction.Description</p>
+
+			<b>Interns list</b>
+			@foreach (InternLowDetailHttpDto intern in Direction.Interns)
+			{
+				<p>@intern.User.Name @intern.User.Surname</p>
+			}
+
+			<MudButton @onclick="ToggleEdit" Variant="Variant.Filled">Edit</MudButton>
+		}
+	</div>
+</div>
+
+@code {
+	[Inject]
+	private IDialogService DialogService { get; set; }
+
+	[Parameter]
+	public DirectionHttpDto Direction { get; set; }
+
+	private bool IsEditing { get; set; }
+
+	[Parameter]
+	public Dictionary<Guid, InternLowDetailHttpDto> Interns { get; set; }
+
+	private string dirName = "";
+	private string dirDescription = "";
+	private Dictionary<Guid, InternLowDetailHttpDto> DirectionInterns = new();
+	private string nameError;
+	private string cantDelete;
+	private string internsFilter = "";
+	private Guid selectedInternId;
+
+	private async Task ReloadPage()
+	{
+		await JSRuntime.InvokeVoidAsync("location.reload");
+	}
+
+	private void ClearErrors()
+	{
+		nameError = null;
+	}
+
+	private bool Validate()
+	{
+		ClearErrors();
+		bool flag = true;
+		if (string.IsNullOrEmpty(dirName))
+		{
+			nameError = "Field name is required";
+			flag = false;
+		}
+		return flag;
+	}
+
+	protected override async Task OnInitializedAsync()
+	{
+		DirectionInterns = Direction.Interns.ToDictionary(intern => intern.Id);
+		dirName = Direction.Name;
+		dirDescription = Direction.Description;
+	}
+
+	private void ToggleEdit()
+	{
+		IsEditing = true;
+		DirectionInterns = Direction.Interns.ToDictionary(intern => intern.Id);
+		dirName = Direction.Name;
+		dirDescription = Direction.Description;
+	}
+
+	private async Task SaveChanges()
+	{
+		if (Validate())
+		{
+			Direction.Name = dirName;
+			Direction.Description = dirDescription;
+			Direction.Interns = DirectionInterns.Values.ToList();
+			Direction.IsActive = true;
+			using HttpClient client = new HttpClient();
+			JsonContent content = JsonContent.Create(Direction, options: new JsonSerializerOptions() { PropertyNameCaseInsensitive = true });
+			HttpResponseMessage responseMessage = await client.PutAsync("http://apigateway:8080/api/Directions/update", content);
+			IsEditing = false;
+		}
+	}
+
+	private async Task DeleteDirection()
+	{
+		if (Direction.Interns.Count == 0)
+		{
+			Direction.IsActive = false;
+			using HttpClient client = new HttpClient();
+			JsonContent content = JsonContent.Create(Direction, options: new JsonSerializerOptions() { PropertyNameCaseInsensitive = true });
+			HttpResponseMessage responseMessage = await client.PutAsync("http://apigateway:8080/api/Directions/update", content);
+			IsEditing = false;
+			await ReloadPage();
+		}
+		else
+		{
+			cantDelete = "Direction with interns can not be deleted!";
+		}
+	}
+
+	private void OnInternSelected(ChangeEventArgs e)
+	{
+		Guid id = Guid.Empty;
+		if (Guid.TryParse(e.Value.ToString(), out id))
+		{
+			InternLowDetailHttpDto intern = Interns[id];
+			Direction.Interns.Add(intern);
+			DirectionInterns.Add(intern.Id, intern);
+			Interns.Remove(Guid.Parse(e.Value.ToString()));
+		}
+	}
+}
+
+<style>
+	.card {
+		width: 390px;
+		margin-bottom: 10px;
+	}
+</style>

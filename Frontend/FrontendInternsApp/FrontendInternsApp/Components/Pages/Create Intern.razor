@@ -1,0 +1,197 @@
+﻿@page "/"
+@rendermode InteractiveServer
+@inject IJSRuntime JSRuntime
+@using System.Text.Json
+@using System.Text.RegularExpressions
+@using HttpDtos
+@using System.Net
+
+<PageTitle>Home</PageTitle>
+
+<h1>Create intern</h1>
+
+
+<b>Name</b>
+<input @bind="Intern.User.Name" class="form-control" placeholder="Enter intern name"/>
+<span class="text-danger">@nameError</span>
+
+<b>Surname</b>
+<input @bind="Intern.User.Surname" class="form-control" placeholder="Enter intern surname"/>
+<span class="text-danger">@surnameError</span>
+
+<b>Gender</b>
+<select @onchange="OnGenderSelected">
+    <option selected="@(!Intern.User.Sex)">Male</option>
+    <option selected="@(Intern.User.Sex)">Female</option>
+</select>
+
+<b>Birthdate</b>
+<input type="date" @bind="Intern.User.BirthDate" class="form-control"></input>
+<span class="text-danger">@birthdateError</span>
+
+<b>Email</b>
+<input @bind="Intern.User.Email" class="form-control" placeholder="Enter intern email"></input>
+<span class="text-danger">@emailError</span>
+
+<b>Phone number</b>
+<input @bind="Intern.User.PhoneNumber" class="form-control" placeholder="Enter intern phonenumber"></input>
+<span class="text-danger">@numberError</span>
+
+<b>Project</b>
+<select @onchange="OnProjectSelected">
+    @foreach (ProjectLowDetailHttpDto project in projectsList)
+    {
+        <option value="@project.Id" selected="@(Intern.Project != null && Intern.Project.Id == project.Id)">@project.Name</option>
+    }
+</select>
+
+<input @bind="NewProject.Name" class="form-control" placeholder="Enter new project name"></input>
+<MudButton @onclick="OnProjectCreating" Variant="Variant.Filled">Create new project</MudButton>
+
+<span class="text-danger">@projectError</span>
+
+<b>Direction</b>
+<select @onchange="OnDirectionSelected">
+    @foreach (DirectionLowDetailHttpDto direction in directionsList)
+    {
+        <option value="@direction.Id" selected="@(Intern.Direction != null && Intern.Direction.Id == direction.Id)">@direction.Name</option>
+    }
+</select>
+
+<input @bind="NewDirection.Name" class="form-control" placeholder="Enter new direction name"></input>
+<MudButton @onclick="OnDirectionCreating" Variant="Variant.Filled">Create new direction</MudButton>
+
+<span class="text-danger">@directionError</span>
+
+<MudButton @onclick="OnInternCreating" Variant="Variant.Filled">Create intern</MudButton>
+@code{
+    private InternHttpDto Intern;
+    private DirectionLowDetailHttpDto NewDirection = new();
+    private ProjectLowDetailHttpDto NewProject = new();
+    private List<DirectionLowDetailHttpDto> directionsList = new();
+    private List<ProjectLowDetailHttpDto> projectsList = new();
+    private string nameError;
+    private string surnameError;
+    private string birthdateError;
+    private string genderError;
+    private string emailError;
+    private string directionError;
+    private string numberError;
+    private string projectError;
+
+    private void ClearErrors()
+    {
+        nameError = null;
+        surnameError = null;
+        birthdateError = null;
+        emailError = null;
+        directionError = null;
+        numberError = null;
+        projectError = null;
+    }
+
+    private void Validate()
+    {
+        ClearErrors();
+        if (string.IsNullOrEmpty(Intern.User.Name))
+            nameError = "Field name is required";
+        if (string.IsNullOrEmpty(Intern.User.Surname))
+            surnameError = "Field surname is required";
+        if (Intern.User.BirthDate == null)
+            birthdateError = "Field birthdate is required";
+        if (string.IsNullOrEmpty(Intern.User.Email))
+            emailError = "Field email is required";
+        else if (!Regex.IsMatch(Intern.User.Email, @"^[^@\s]+@[^@\s]+\.[^@\s]+$"))
+            emailError = "Email is incorrect";
+        if (!string.IsNullOrEmpty(Intern.User.PhoneNumber) && !Regex.IsMatch(Intern.User.PhoneNumber, @"^\+7\d{10}$"))
+            numberError = "Phone number is incorrect";
+        if (Intern.Project == null)
+            projectError = "Field project is required";
+        if (Intern.Direction == null)
+            directionError = "Field direction is required";
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        using HttpClient client = new HttpClient();
+        Intern = new();
+        Intern.Project = new();
+        Intern.User = new();
+        Intern.Direction = new();
+        HttpResponseMessage responseMessage = await client.GetAsync("http://apigateway:8080/api/Directions/low_detail_all");
+        string content = "";
+        content = await responseMessage.Content.ReadAsStringAsync();
+        directionsList = JsonSerializer.Deserialize<List<DirectionLowDetailHttpDto>>(content, new JsonSerializerOptions() { PropertyNameCaseInsensitive = true });
+        responseMessage = await client.GetAsync("http://apigateway:8080/api/Projects/low_detail_all");
+        content = await responseMessage.Content.ReadAsStringAsync();
+        projectsList = JsonSerializer.Deserialize<List<ProjectLowDetailHttpDto>>(content, new JsonSerializerOptions() { PropertyNameCaseInsensitive = true });
+        if (directionsList.Count != 0)
+            Intern.Direction = directionsList[0];
+        if (projectsList.Count != 0)
+            Intern.Project = projectsList[0];
+    }
+
+    private async Task OnDirectionCreating()
+    {
+        using HttpClient client = new HttpClient();
+        JsonContent content = JsonContent.Create(new DirectionLowDetailHttpDto() { Id = NewDirection.Id, Name = NewDirection.Name, Description = "", IsActive = true}, options: new JsonSerializerOptions() { PropertyNameCaseInsensitive = true });
+        HttpResponseMessage responseMessage = await client.PostAsync("http://apigateway:8080/api/Directions/create", content);
+        string responseContent = await responseMessage.Content.ReadAsStringAsync();
+        NewDirection.Id = JsonSerializer.Deserialize<Guid>(responseContent, new JsonSerializerOptions() { PropertyNameCaseInsensitive = true });
+        directionsList.Add(NewDirection);
+        Intern.Direction = NewDirection;
+    }
+
+    private async Task OnProjectCreating()
+    {
+        using HttpClient client = new HttpClient();
+        JsonContent content = JsonContent.Create(new ProjectLowDetailHttpDto() { Id = NewProject.Id, Name = NewProject.Name, Description = "", IsActive = true} , options: new JsonSerializerOptions() { PropertyNameCaseInsensitive = true });
+        HttpResponseMessage responseMessage = await client.PostAsync("http://apigateway:8080/api/Projects/create", content);
+        string responseContent = await responseMessage.Content.ReadAsStringAsync();
+        NewProject.Id = JsonSerializer.Deserialize<Guid>(responseContent, new JsonSerializerOptions() { PropertyNameCaseInsensitive = true });
+        projectsList.Add(NewProject);
+        Intern.Project = NewProject;
+    }
+
+    private async Task OnInternCreating()
+    {
+        Validate();
+        if (string.IsNullOrEmpty(nameError) && string.IsNullOrEmpty(surnameError) &&
+            string.IsNullOrEmpty(birthdateError) && string.IsNullOrEmpty(emailError) &&
+            string.IsNullOrEmpty(directionError) && string.IsNullOrEmpty(numberError) && string.IsNullOrEmpty(projectError))
+        {
+            using HttpClient client = new HttpClient();
+            InternLowDetailHttpDto intern = new();
+            if (string.IsNullOrEmpty(Intern.User.PhoneNumber))
+                Intern.User.PhoneNumber = "";
+            intern.User = Intern.User;
+            intern.ProjectId = Intern.Project.Id;
+            intern.DirectionId = Intern.Direction.Id;
+            JsonContent content = JsonContent.Create(intern, options: new JsonSerializerOptions() { PropertyNameCaseInsensitive = true });
+            HttpResponseMessage responseMessage = await client.PostAsync("http://apigateway:8080/api/Interns/create", content);
+            ReloadPage();
+        }
+    }
+
+    private void OnDirectionSelected(ChangeEventArgs e)
+    {
+        Guid id = Guid.Parse(e.Value.ToString());
+        Intern.Direction = directionsList.FirstOrDefault(dir => dir.Id == id);
+    }
+
+    private void OnProjectSelected(ChangeEventArgs e)
+    {
+        Guid id = Guid.Parse(e.Value.ToString());
+        Intern.Project = projectsList.FirstOrDefault(dir => dir.Id == id);
+    }
+
+    private void OnGenderSelected(ChangeEventArgs e)
+    {
+        Intern.User.Sex = e.Value.ToString() == "Female";
+    }
+
+    private async Task ReloadPage()
+    {
+        await JSRuntime.InvokeVoidAsync("location.reload");
+    }
+}

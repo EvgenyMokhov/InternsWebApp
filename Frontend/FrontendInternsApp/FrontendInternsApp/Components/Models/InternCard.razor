@@ -1,0 +1,176 @@
+﻿@using System.Text.Json
+@using System.Text.RegularExpressions
+@using HttpDtos
+@using System.Net
+@code {
+    [Parameter] public InternHttpDto Intern { get; set; }
+    [Parameter] public List<ProjectLowDetailHttpDto> Projects { get; set; }
+    [Parameter] public List<DirectionLowDetailHttpDto> Directions { get; set; }
+    private bool isEditing = false;
+    private string nameError;
+    private string surnameError;
+    private string birthdateError;
+    private string genderError;
+    private string emailError;
+    private string directionError;
+    private string numberError;
+    private string projectError;
+
+    private void ClearErrors()
+    {
+        nameError = null;
+        surnameError = null;
+        birthdateError = null;
+        emailError = null;
+        directionError = null;
+        numberError = null;
+        projectError = null;
+    }
+
+    private void Validate()
+    {
+        ClearErrors();
+        if (string.IsNullOrEmpty(Intern.User.Name))
+            nameError = "Field name is required";
+        if (string.IsNullOrEmpty(Intern.User.Surname))
+            surnameError = "Field surname is required";
+        if (Intern.User.BirthDate == null)
+            birthdateError = "Field birthdate is required";
+        if (string.IsNullOrEmpty(Intern.User.Email))
+            emailError = "Field email is required";
+        if (!Regex.IsMatch(Intern.User.Email, @"^[^@\s]+@[^@\s]+\.[^@\s]+$"))
+            emailError = "Email is incorrect";
+        if (!Regex.IsMatch(Intern.User.PhoneNumber, @"^\+7\d{10}$") && Intern.User.PhoneNumber != "")
+            numberError = "Phone number is incorrect";
+        if (Intern.Project == null)
+            projectError = "Field project is required";
+        if (Intern.Direction == null)
+            directionError = "Field direction is required";
+    }
+
+    private void ToggleEdit()
+    {
+        isEditing = true;
+    }
+
+    private async Task SaveChanges()
+    {
+        Validate();
+        if (string.IsNullOrEmpty(nameError) && string.IsNullOrEmpty(surnameError) &&
+            string.IsNullOrEmpty(birthdateError) && string.IsNullOrEmpty(emailError) &&
+            string.IsNullOrEmpty(directionError) && string.IsNullOrEmpty(numberError) && string.IsNullOrEmpty(projectError))
+        {
+            using HttpClient client = new HttpClient();
+            InternLowDetailHttpDto data = new() { Id = Intern.Id, User = Intern.User, DirectionId = Intern.Direction.Id, ProjectId = Intern.Project.Id };
+            JsonContent content = JsonContent.Create(data, options: new JsonSerializerOptions() { PropertyNameCaseInsensitive = true });
+            HttpResponseMessage responseMessage = await client.PutAsync("http://apigateway:8080/api/Interns/update", content);
+            isEditing = false;
+        }
+    }
+
+    private void OnDirectionSelected(ChangeEventArgs e)
+    {
+        Guid id = Guid.Parse(e.Value.ToString());
+        DirectionLowDetailHttpDto direction = Directions.FirstOrDefault(dir => dir.Id == id);
+        Intern.Direction = new() { Id = direction.Id, Description = direction.Description, IsActive = direction.IsActive, Name = direction.Name };
+    }
+
+    private void OnProjectSelected(ChangeEventArgs e)
+    {
+        Guid id = Guid.Parse(e.Value.ToString());
+        ProjectLowDetailHttpDto project = Projects.FirstOrDefault(dir => dir.Id == id);
+        Intern.Project = new() { Id = project.Id, Description = project.Description, IsActive = project.IsActive, Name = project.Name };
+    }
+
+    private void OnGenderSelected(ChangeEventArgs e)
+    {
+        Intern.User.Sex = e.Value.ToString() == "Female";
+    }
+}
+
+<div class="card" @onclick="ToggleEdit">
+    <div class="card-body">
+        @if (isEditing)
+        {
+            <b>Name</b>
+            <input @bind="Intern.User.Name" class="form-control" />
+            <span class="text-danger">@nameError</span>
+
+            <b>Surname</b>
+            <input @bind="Intern.User.Surname" class="form-control"/>
+            <span class="text-danger">@surnameError</span>
+
+            <b>Gender</b>
+            <select @onchange="OnGenderSelected">
+                <option selected="@(!Intern.User.Sex)">Male</option>
+                <option selected="@(Intern.User.Sex)">Female</option>
+            </select>
+
+            <b>Birthdate</b>
+            <input type="date" @bind="Intern.User.BirthDate" class="form-control"></input>
+            <span class="text-danger">@birthdateError</span>
+
+            <b>Email</b>
+            <input @bind="Intern.User.Email" class="form-control"></input>
+            <span class="text-danger">@emailError</span>
+
+            <b>Phone number</b>
+            <input @bind="Intern.User.PhoneNumber" class="form-control"></input>
+            <span class="text-danger">@numberError</span>
+
+            <b>Project</b>
+            <select @onchange="OnProjectSelected">
+                @foreach (ProjectLowDetailHttpDto project in Projects)
+                {
+                    <option value="@project.Id" selected="@(Intern.Project != null && Intern.Project.Id == project.Id)">@project.Name</option>
+                }
+            </select>
+            <span class="text-danger">@projectError</span>
+
+            <b>Direction</b>
+            <select @onchange="OnDirectionSelected">
+                @foreach (DirectionLowDetailHttpDto direction in Directions)
+                {
+                    <option value="@direction.Id" selected="@(Intern.Direction != null && Intern.Direction.Id == direction.Id)">@direction.Name</option>
+                }
+            </select>
+            <span class="text-danger">@directionError</span>
+
+            <MudButton @onclick="SaveChanges" Variant="Variant.Filled">Save</MudButton>
+        }
+        else
+        {
+            <b>Name</b>
+            <p class="card-text">@Intern.User.Name</p>
+
+            <b>Surname</b>
+            <p class="card-text">@Intern.User.Surname</p>
+
+            <b>Gender</b>
+            <p class="card-text">@(Intern.User.Sex ? "Female" : "Male")</p>
+
+            <b>Birthdate</b>
+            <p class="card-text">@Intern.User.BirthDate</p>
+
+            <b>Email</b>
+            <p class="card-text">@Intern.User.Email</p>
+
+            <b>Phone number</b>
+            <p class="card-text">@Intern.User.PhoneNumber</p>
+
+            <b>Project</b>
+            <p class="card-text">@Intern.Project.Name</p>
+
+            <b>Direction</b>
+            <p class="card-text">@Intern.Direction.Name</p>
+        }
+    </div>
+</div>
+
+<style>
+    .card {
+        width: 390px;
+        cursor: pointer;
+        margin-bottom: 10px;
+    }
+</style>

@@ -1,0 +1,138 @@
+﻿@page "/internslist"
+@rendermode InteractiveServer
+@using Blazored.LocalStorage
+@using System.Text.Json
+@using System.ComponentModel
+@using HttpDtos
+@using System.Net
+
+<PageTitle>Interns list</PageTitle>
+
+<h1>Interns list</h1>
+
+<p>Filters</p>
+<select @onchange="OnDirectionFilterSelected">
+    <option value="@Guid.Empty" selected="@(DirectionFilter != null && DirectionFilter.Id == Guid.Empty)">Select direction</option>
+    @foreach (DirectionLowDetailHttpDto direction in directionsList)
+    {
+        <option value="@direction.Id" selected="@(DirectionFilter != null && DirectionFilter.Id == direction.Id)">@direction.Name</option>
+    }
+</select>
+
+<select @onchange="OnProjectFilterSelected">
+    <option value="@Guid.Empty" selected="@(ProjectFilter != null && ProjectFilter.Id == Guid.Empty)">Select project</option>
+    @foreach (ProjectLowDetailHttpDto project in projectsList)
+    {
+        <option value="@project.Id" selected="@(ProjectFilter != null && ProjectFilter.Id == project.Id)">@project.Name</option>
+    }
+</select>
+<MudButton @onclick="OnClearFilters" Variant="Variant.Filled">Clear filters</MudButton>
+
+@if (internsList.Count == 0)
+{
+    <p><em>Loading...</em></p>
+}
+else
+{
+    <MudPaper Class="d-flex flex-wrap gap-4" Elevation="0">
+        @foreach (InternHttpDto intern in internsList)
+        {
+            <FrontendInternsApp.Components.Models.InternCard Intern="intern" Directions="directionsList" Projects="projectsList"></FrontendInternsApp.Components.Models.InternCard>
+        }
+    </MudPaper>
+}
+
+@code {
+    [Inject]
+    private ILocalStorageService LocalStorage { get; set; } = default!;
+    private List<InternHttpDto> internsList = new();
+    private List<DirectionLowDetailHttpDto> directionsList = new();
+    private List<ProjectLowDetailHttpDto> projectsList = new();
+    private DirectionLowDetailHttpDto? DirectionFilter;
+    private ProjectLowDetailHttpDto? ProjectFilter;
+
+    protected override async Task OnInitializedAsync()
+    {
+        DirectionFilter = new() { Id = Guid.Empty };
+        ProjectFilter = new() { Id = Guid.Empty };
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        Guid odfId = DirectionFilter.Id;
+        Guid opfId = ProjectFilter.Id;
+        DirectionFilter = await LocalStorage.GetItemAsync<DirectionLowDetailHttpDto>("DirectionFilter");
+        ProjectFilter = await LocalStorage.GetItemAsync<ProjectLowDetailHttpDto>("ProjectFilter");
+        if (DirectionFilter == null)
+        {
+            await LocalStorage.SetItemAsync<DirectionLowDetailHttpDto>("DirectionFilter", new() { Id = Guid.Empty });
+            DirectionFilter = new() { Id = Guid.Empty};
+        }
+        if (ProjectFilter == null)
+        {
+            await LocalStorage.SetItemAsync<ProjectLowDetailHttpDto>("ProjectFilter", new() { Id = Guid.NewGuid() });
+            ProjectFilter = new() { Id = Guid.NewGuid() };
+        }
+        if (firstRender || odfId != DirectionFilter.Id || opfId != ProjectFilter.Id)
+        {
+            using HttpClient client = new HttpClient();
+            string content = "";
+            HttpResponseMessage responseMessage = await client.GetAsync($"http://apigateway:8080/api/Interns/get_filtered?projectId={ProjectFilter.Id.ToString()}&directionId={DirectionFilter.Id.ToString()}");
+            content = await responseMessage.Content.ReadAsStringAsync();
+            internsList = JsonSerializer.Deserialize<List<InternHttpDto>>(content, new JsonSerializerOptions() { PropertyNameCaseInsensitive = true });
+            responseMessage = await client.GetAsync("http://apigateway:8080/api/Directions/low_detail_all");
+            content = await responseMessage.Content.ReadAsStringAsync();
+            directionsList = JsonSerializer.Deserialize<List<DirectionLowDetailHttpDto>>(content, new JsonSerializerOptions() { PropertyNameCaseInsensitive = true });
+            responseMessage = await client.GetAsync("http://apigateway:8080/api/Projects/low_detail_all");
+            content = await responseMessage.Content.ReadAsStringAsync();
+            projectsList = JsonSerializer.Deserialize<List<ProjectLowDetailHttpDto>>(content, new JsonSerializerOptions() { PropertyNameCaseInsensitive = true });
+            StateHasChanged();
+        }
+    }
+
+    private async Task OnClearFilters()
+    {
+        DirectionFilter = new() { Id = Guid.Empty };
+        ProjectFilter = new() { Id = Guid.Empty };
+        await LocalStorage.SetItemAsync<DirectionLowDetailHttpDto>("DirectionFilter", DirectionFilter);
+        await LocalStorage.SetItemAsync<ProjectLowDetailHttpDto>("ProjectFilter", ProjectFilter);
+        using HttpClient client = new HttpClient();
+        HttpResponseMessage responseMessage = await client.GetAsync($"http://apigateway:8080/api/Interns/get_filtered?projectId={ProjectFilter.Id.ToString()}&directionId={DirectionFilter.Id.ToString()}");
+        string content = await responseMessage.Content.ReadAsStringAsync();
+        internsList = JsonSerializer.Deserialize<List<InternHttpDto>>(content, new JsonSerializerOptions() { PropertyNameCaseInsensitive = true });
+    }
+
+    private async Task OnDirectionFilterSelected(ChangeEventArgs e)
+    {
+        Guid id = Guid.Parse(e.Value.ToString());
+        if (id != Guid.Empty)
+        {
+            DirectionLowDetailHttpDto direction =  directionsList.FirstOrDefault(dir => dir.Id == id);
+            DirectionFilter = new() { Id = direction.Id, Description = direction.Description, IsActive = direction.IsActive, Name = direction.Name };
+        }
+        else
+            DirectionFilter = new() { Id = id };
+        await LocalStorage.SetItemAsync<DirectionLowDetailHttpDto>("DirectionFilter", DirectionFilter);
+        using HttpClient client = new HttpClient();
+        HttpResponseMessage responseMessage = await client.GetAsync($"http://apigateway:8080/api/Interns/get_filtered?projectId={ProjectFilter.Id.ToString()}&directionId={DirectionFilter.Id.ToString()}");
+        string content = await responseMessage.Content.ReadAsStringAsync();
+        internsList = JsonSerializer.Deserialize<List<InternHttpDto>>(content, new JsonSerializerOptions() { PropertyNameCaseInsensitive = true });
+    }
+
+    private async Task OnProjectFilterSelected(ChangeEventArgs e)
+    {
+        Guid id = Guid.Parse(e.Value.ToString());
+        if (id != Guid.Empty)
+        {
+            ProjectLowDetailHttpDto project = projectsList.FirstOrDefault(proj => proj.Id == id);
+            ProjectFilter = new() { Id = project.Id, Description = project.Description, IsActive = project.IsActive, Name = project.Name };
+        }
+        else
+            ProjectFilter = new() { Id = id };
+        await LocalStorage.SetItemAsync<ProjectLowDetailHttpDto>("ProjectFilter", ProjectFilter);
+        using HttpClient client = new HttpClient();
+        HttpResponseMessage responseMessage = await client.GetAsync($"http://apigateway:8080/api/Interns/get_filtered?projectId={ProjectFilter.Id.ToString()}&directionId={DirectionFilter.Id.ToString()}");
+        string content = await responseMessage.Content.ReadAsStringAsync();
+        internsList = JsonSerializer.Deserialize<List<InternHttpDto>>(content, new JsonSerializerOptions() { PropertyNameCaseInsensitive = true });
+    }
+}
