@@ -1,1 +1,5 @@
-# InternsApp
+Приложение на микросервисной архитектуре с использованием RabbitMQ + MassTransit в качестве транспорта между микросервисами.
+
+Написан docker-compose для быстрого запуска всех сервисов, на бэкенде используются паттерны Repository и Saga на Api Gateway, который также выступает в роли оркестратора.
+
+В приложении используются dll с классами, представляющими данные в том или ином виде (Dto, DbEntities, etc.) [source](https://github.com/EvgenyMokhov/ModelsInternsApp)
